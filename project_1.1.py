@@ -1,3 +1,51 @@
+'''
+General Conversation & Help
+"Hello"
+"What can you do?"
+"Help"
+"Who are you?"
+"How are you?"
+"Thank you"
+"Bye" / "Exit" / "Quit"
+Wikipedia & Information Search
+"Search Wikipedia for Albert Einstein"
+"Tell me about Python programming from Wikipedia"
+"Wikipedia Tesla"
+"Search Wikipedia"
+Jokes and Fun
+"Tell me a joke"
+"Say something funny"
+"Make me laugh"
+Time and Date
+"What is the time?"
+"Tell me the time"
+"What’s the date today?"
+"Which day is it?"
+Weather
+"What's the weather?"
+"Weather in Mumbai"
+"Is it raining in Delhi?"
+"Temperature in Bangalore"
+Reminders
+"Set a reminder"
+"Remind me to call mom in 10 minutes"
+"List reminders"
+"Show my reminders"
+Calculations
+"Calculate 5 plus 8"
+"What is 10 divided by 2?"
+"Calculate seven times three"
+Music
+"Play music"
+"Play a song"
+"Turn on some music"
+Opening and Searching Websites
+"Open Google"
+"Open YouTube"
+"Open GitHub"
+"Search for latest news"
+"Google for skincare routine tips"
+'''
 import sounddevice as sd
 import soundfile as sf
 import speech_recognition as sr
@@ -12,9 +60,28 @@ import re
 import requests
 import threading
 
-# Initialize text-to-speech
-engine = pyttsx3.init()
-engine.setProperty('rate', 180)
+# Initialize text-to-speech with error handling
+def init_engine():
+    """Initialize pyttsx3 engine with proper settings"""
+    try:
+        engine = pyttsx3.init('sapi5')  # Windows
+        engine.setProperty('rate', 180)
+        engine.setProperty('volume', 1.0)
+        voices = engine.getProperty('voices')
+        if voices:
+            engine.setProperty('voice', voices[0].id)
+        return engine
+    except:
+        try:
+            engine = pyttsx3.init()  # Other OS
+            engine.setProperty('rate', 180)
+            engine.setProperty('volume', 1.0)
+            return engine
+        except Exception as e:
+            print(f"Engine initialization error: {e}")
+            return None
+
+engine = init_engine()
 
 # Conversation context
 conversation_history = []
@@ -22,21 +89,66 @@ user_name = None
 reminders = []
 
 def speak(text, rate=1.3):
-    """Text-to-speech with adjustable rate"""
-    engine.setProperty('rate', int(180 * rate))
-    engine.say(text)
-    engine.runAndWait()
+    """Text-to-speech with adjustable rate and error handling"""
+    global engine
+    try:
+        if engine is None:
+            engine = init_engine()
+            if engine is None:
+                print("Speech engine not available")
+                return
+        
+        engine.stop()  # Clear queue
+        engine.setProperty('rate', int(180 * rate))
+        engine.say(text)
+        engine.runAndWait()
+        
+    except RuntimeError as e:
+        print(f"Runtime error in speech: {e}")
+        # Reinitialize and retry
+        engine = init_engine()
+        if engine:
+            try:
+                engine.say(text)
+                engine.runAndWait()
+            except:
+                pass
+    except Exception as e:
+        print(f"Speech error: {e}")
 
 def bot_say(text, rate=1.3):
-    """Print and speak bot responses"""
+    """Print and speak bot responses with long text handling"""
     print(f"🤖 Bot: {text}")
-    speak(text, rate)
+    
+    # Split very long text into manageable chunks
+    if len(text) > 250:
+        # Split by sentences
+        sentences = []
+        for delimiter in ['. ', '! ', '? ']:
+            if delimiter in text:
+                parts = text.split(delimiter)
+                for i, part in enumerate(parts[:-1]):
+                    sentences.append(part + delimiter.strip())
+                if parts[-1]:
+                    sentences.append(parts[-1])
+                break
+        
+        if not sentences:
+            sentences = [text]
+        
+        for sentence in sentences:
+            if sentence.strip():
+                speak(sentence.strip(), rate)
+                time.sleep(0.3)
+    else:
+        speak(text, rate)
+    
     conversation_history.append(("bot", text))
 
 def take_command(duration=4):
     """Capture and recognize voice input with improved error handling"""
     r = sr.Recognizer()
-    r.energy_threshold = 4000  # Adjust for background noise
+    r.energy_threshold = 4000
     r.dynamic_energy_threshold = True
     temp_file = "temp_audio.wav"
     fs = 44100
@@ -80,7 +192,6 @@ def get_user_name():
     bot_say("By the way, what should I call you?")
     name = take_command()
     if name:
-        # Extract likely name (first capitalized word)
         words = name.split()
         for word in words:
             if len(word) > 2 and word not in ['my', 'name', 'is', 'call', 'me']:
@@ -116,7 +227,6 @@ def tell_joke():
     time.sleep(0.5)
     bot_say("Want to guess?", rate=1.2)
     
-    # Give user time to respond
     response = take_command(duration=3)
     
     if response:
@@ -156,7 +266,7 @@ def search_wikipedia(topic):
     if topic:
         bot_say(f"Let me look up {topic} for you...")
         try:
-            result = wikipedia.summary(topic, sentences=3, auto_suggest=True)
+            result = wikipedia.summary(topic, sentences=2, auto_suggest=True)
             bot_say("Here's what I found:")
             bot_say(result)
         except wikipedia.exceptions.DisambiguationError as e:
@@ -190,10 +300,7 @@ def open_website(query):
 def calculate(query):
     """Simple calculator function"""
     try:
-        # Extract mathematical expression
         expression = query.replace('calculate', '').replace('what is', '').replace('plus', '+').replace('minus', '-').replace('times', '*').replace('multiplied by', '*').replace('divided by', '/').strip()
-        
-        # Simple evaluation (be careful with eval in production!)
         result = eval(expression)
         bot_say(f"The answer is {result}")
     except:
@@ -206,41 +313,36 @@ def get_weather(city=None):
         bot_say("Which city's weather would you like to know?")
         city_response = take_command()
         if city_response:
-            # Extract city name
             city = city_response.replace('weather', '').replace('in', '').replace('of', '').strip()
         else:
-            city = "Mumbai"  # Default city
+            city = "Mumbai"
     
     try:
-        # Using wttr.in - free weather service, no API key needed
         url = f"https://wttr.in/{city}?format=j1"
         response = requests.get(url, timeout=5)
         data = response.json()
         
-        # Extract weather information
         current = data['current_condition'][0]
         temp = current['temp_C']
         feels_like = current['FeelsLikeC']
         description = current['weatherDesc'][0]['value']
         humidity = current['humidity']
-        wind_speed = current['windspeedKmph']
         
         weather_info = f"The weather in {city} is {description}. "
-        weather_info += f"Temperature is {temp} degrees Celsius, but it feels like {feels_like} degrees. "
-        weather_info += f"Humidity is {humidity} percent, and wind speed is {wind_speed} kilometers per hour."
+        weather_info += f"Temperature is {temp} degrees Celsius, feels like {feels_like}. "
+        weather_info += f"Humidity is {humidity} percent."
         
         bot_say(weather_info)
     
     except requests.exceptions.Timeout:
-        bot_say("The weather service is taking too long to respond. Please try again later.")
+        bot_say("The weather service is taking too long to respond.")
     except requests.exceptions.ConnectionError:
-        bot_say("I'm having trouble connecting to the weather service. Check your internet connection.")
+        bot_say("Check your internet connection.")
     except KeyError:
-        bot_say(f"I couldn't find weather information for {city}. Please check the city name.")
+        bot_say(f"I couldn't find weather information for {city}.")
     except Exception as e:
-        bot_say("I couldn't fetch the weather right now. Please try again later.")
+        bot_say("I couldn't fetch the weather right now.")
         print(f"Weather Error: {e}")
-
 
 def set_reminder(query):
     """Set a reminder with time delay"""
@@ -255,11 +357,10 @@ def set_reminder(query):
     time_str = take_command()
     
     try:
-        # Extract number from speech
         numbers = re.findall(r'\d+', time_str)
         if numbers:
             minutes = int(numbers[0])
-            bot_say(f"Okay! I'll remind you about '{task}' in {minutes} minute{'s' if minutes > 1 else ''}.")
+            bot_say(f"Okay! I'll remind you in {minutes} minutes.")
             
             reminder_info = {
                 'task': task,
@@ -270,15 +371,15 @@ def set_reminder(query):
             
             def remind():
                 time.sleep(minutes * 60)
-                bot_say(f"⏰ Reminder: {task}")
+                bot_say(f"Reminder: {task}")
                 if reminder_info in reminders:
                     reminders.remove(reminder_info)
             
             threading.Thread(target=remind, daemon=True).start()
         else:
-            bot_say("I didn't get the time correctly. Please say a number like '5 minutes'.")
+            bot_say("I didn't get the time correctly.")
     except Exception as e:
-        bot_say("I couldn't set the reminder. Please try again.")
+        bot_say("I couldn't set the reminder.")
         print(f"Reminder Error: {e}")
 
 def list_reminders():
@@ -286,44 +387,36 @@ def list_reminders():
     if not reminders:
         bot_say("You don't have any active reminders.")
     else:
-        bot_say(f"You have {len(reminders)} active reminder{'s' if len(reminders) > 1 else ''}:")
+        bot_say(f"You have {len(reminders)} active reminders.")
         for i, reminder in enumerate(reminders, 1):
             elapsed = (datetime.now() - reminder['set_time']).seconds // 60
             remaining = reminder['minutes'] - elapsed
-            bot_say(f"{i}. {reminder['task']} - {remaining} minutes remaining")
+            bot_say(f"Number {i}. {reminder['task']}. {remaining} minutes remaining.")
 
 def play_music():
     """Play music from specified directory"""
-    # Change this path to your music folder
-    music_dir = os.path.expanduser("~/Music")  # Default music folder
-    
-    # Alternative paths you can try:
-    # Windows: "C:\\Users\\YourUsername\\Music"
-    # Mac/Linux: "/home/yourusername/Music"
+    music_dir = os.path.expanduser("~/Music")
     
     if not os.path.exists(music_dir):
-        bot_say("I couldn't find your music folder. Please update the music directory path in the code.")
-        print(f"Music directory not found: {music_dir}")
+        bot_say("I couldn't find your music folder.")
         return
     
     try:
-        # Get all music files (mp3, wav, flac, m4a)
         music_files = [f for f in os.listdir(music_dir) 
                       if f.endswith(('.mp3', '.wav', '.flac', '.m4a', '.ogg'))]
         
         if music_files:
             song = random.choice(music_files)
             song_path = os.path.join(music_dir, song)
-            bot_say(f"Playing {song.replace('.mp3', '').replace('.wav', '')} for you!")
+            bot_say(f"Playing music for you!")
             
-            # Open with default music player
-            if os.name == 'nt':  # Windows
+            if os.name == 'nt':
                 os.startfile(song_path)
-            elif os.name == 'posix':  # Mac/Linux
+            elif os.name == 'posix':
                 os.system(f'open "{song_path}"' if os.uname().sysname == 'Darwin' 
                          else f'xdg-open "{song_path}"')
         else:
-            bot_say(f"I couldn't find any music files in {music_dir}. Please add some songs there!")
+            bot_say("I couldn't find any music files.")
     
     except Exception as e:
         bot_say("I encountered an error while trying to play music.")
@@ -343,33 +436,31 @@ def wish_user():
     
     bot_say(greeting)
     bot_say("I'm your smart assistant, ready to help!")
-    
-    # Get user's name for personalization
     get_user_name()
 
 def show_help():
     """Show available commands"""
     bot_say("Here's what I can do:")
-    commands = [
-        "🤣 Tell jokes",
-        "📚 Search Wikipedia",
-        "⏰ Tell time and date",
-        "🌐 Open websites like YouTube and Google",
-        "🔢 Do simple calculations",
-        "🔍 Search the web",
-        "🌤️ Get weather information",
-        "⏰ Set reminders",
-        "🎵 Play music"
-    ]
-    for cmd in commands:
-        print(f"   {cmd}")
-    bot_say("Just ask me anything!")
+    time.sleep(0.3)
+    bot_say("Tell jokes")
+    time.sleep(0.2)
+    bot_say("Search Wikipedia")
+    time.sleep(0.2)
+    bot_say("Tell time and date")
+    time.sleep(0.2)
+    bot_say("Open websites")
+    time.sleep(0.2)
+    bot_say("Do calculations")
+    time.sleep(0.2)
+    bot_say("Get weather information")
+    time.sleep(0.2)
+    bot_say("Set reminders")
+    time.sleep(0.2)
+    bot_say("And play music")
 
 def main():
     """Main conversation loop"""
     wish_user()
-    
-    # Interaction counter for personality
     interaction_count = 0
     
     while True:
@@ -379,120 +470,101 @@ def main():
         if not query:
             continue
         
-        # Personalized greeting
         name_prefix = f"{user_name}, " if user_name and random.random() > 0.7 else ""
         
-        # Wikipedia search
         if 'wikipedia' in query or 'wiki' in query:
             topic = query.replace("wikipedia", "").replace("wiki", "").replace("search", "").strip()
             search_wikipedia(topic)
         
-        # Jokes
         elif 'joke' in query or 'funny' in query or 'laugh' in query:
             tell_joke()
         
-        # Time
         elif 'time' in query:
             tell_time()
         
-        # Date
         elif 'date' in query or 'today' in query:
             tell_date()
         
-        # Weather
         elif 'weather' in query or 'temperature' in query:
             city = query.replace('weather', '').replace('temperature', '').replace('in', '').replace('of', '').strip()
             get_weather(city if city else None)
         
-        # Reminders - Set
         elif 'remind' in query or 'reminder' in query:
             if 'list' in query or 'show' in query or 'what are' in query:
                 list_reminders()
             else:
                 set_reminder(query)
         
-        # Music
         elif 'play music' in query or 'play song' in query or 'music' in query:
             play_music()
         
-        # Open websites
         elif 'open' in query or 'youtube' in query or 'google' in query:
             open_website(query)
         
-        # Web search
         elif 'search' in query:
             open_website(query)
         
-        # Calculator
         elif 'calculate' in query or 'plus' in query or 'minus' in query or ('what is' in query and any(char.isdigit() for char in query)):
             calculate(query)
         
-        # Help
         elif 'help' in query or 'what can you do' in query or 'commands' in query:
             show_help()
         
-        # How are you
         elif 'how are you' in query or 'how do you do' in query:
             responses = [
                 "I'm doing great! Thanks for asking.",
                 "I'm excellent! How about you?",
-                "Fantastic! Ready to help you.",
-                "I'm wonderful! What can I do for you?"
+                "Fantastic! Ready to help you."
             ]
             bot_say(random.choice(responses))
         
-        # Thank you
         elif 'thank' in query:
             responses = [
-                f"You're welcome, {name_prefix}!",
+                f"You're welcome!",
                 "Happy to help!",
-                "Anytime!",
-                "My pleasure!"
+                "Anytime!"
             ]
             bot_say(random.choice(responses))
         
-        # Exit commands
-        elif any(word in query for word in ['exit', 'quit', 'bye', 'goodbye', 'see you']):
+        elif any(word in query for word in ['exit', 'quit', 'bye', 'goodbye', 'see you', 'byebye']):
             farewells = [
                 f"Goodbye, {user_name}! Have a wonderful day!",
                 f"See you later, {user_name}!",
-                f"Take care, {user_name}!",
-                f"Bye {user_name}! Come back soon!"
+                f"Take care, {user_name}!"
             ]
             bot_say(random.choice(farewells))
             break
         
-        # Small talk responses
         elif 'your name' in query:
-            bot_say("I'm your smart assistant. You can call me whatever you like!")
+            bot_say("I'm your smart assistant.")
         
         elif 'who are you' in query or 'what are you' in query:
-            bot_say("I'm your AI voice assistant, here to make your life easier!")
+            bot_say("I'm your AI voice assistant!")
         
-        # Default response with encouragement
         else:
             responses = [
-                "I'm not sure how to help with that yet, but I'm learning every day!",
-                "Hmm, I don't have that feature yet. Try asking for help to see what I can do!",
-                "I'm still learning that. Ask me to tell a joke or search Wikipedia!",
-                f"I didn't understand that, {name_prefix}. Say 'help' to see what I can do."
+                "I'm not sure how to help with that yet.",
+                "Try asking for help to see what I can do!",
+                f"I didn't understand that. Say 'help' to see commands."
             ]
             bot_say(random.choice(responses))
         
-        # Occasional engagement prompts
         if interaction_count % 5 == 0:
             prompts = [
                 "What else can I help you with?",
-                "Anything else you need?",
+                "Anything else?",
                 "I'm here if you need more help!"
             ]
             bot_say(random.choice(prompts))
 
 if __name__ == "__main__":
     try:
+        print("=" * 50)
+        print("🎙️  VOICE ASSISTANT STARTING...")
+        print("=" * 50)
         main()
     except KeyboardInterrupt:
         bot_say("Shutting down. Goodbye!")
     except Exception as e:
         print(f"Error: {e}")
-        bot_say("I encountered an error. Please restart me.")
+        bot_say("I encountered an error.")
